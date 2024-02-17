@@ -8,6 +8,10 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <Wire.h>
+// for oled lcd
+#include <Adafruit_GFX.h> //OLED libraries
+#include <Adafruit_SSD1306.h>
+#include <SPI.h>
 
 // BLUETOOTH LOW ENERGY
 // =============================================================================================
@@ -71,6 +75,127 @@ int i = 0;
 int Num = 30;             // Ambil sampel 30 kali sebelum menghitung sekali
 #define FINGER_ON 7000    // Jumlah minimum inframerah (untuk menentukan apakah jari ada atau tidak)
 #define MINIMUM_SPO2 90.0 // Jumlah minimum SpO2
+
+// OLED LCD
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET -1    // Reset pin # (or -1 if sharing Arduino reset pin)
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET); // Declaring the display name (display)
+
+// Logo2 and Logo3 are two bmp pictures that display on the OLED if called
+static const unsigned char PROGMEM logo2_bmp[] =
+    {
+        0x03,
+        0xC0,
+        0xF0,
+        0x06,
+        0x71,
+        0x8C,
+        0x0C,
+        0x1B,
+        0x06,
+        0x18,
+        0x0E,
+        0x02,
+        0x10,
+        0x0C,
+        0x03,
+        0x10,
+        0x04,
+        0x01,
+        0x10,
+        0x04,
+        0x01,
+        0x10,
+        0x40,
+        0x01,
+        0x10,
+        0x40,
+        0x01,
+        0x10,
+        0xC0,
+        0x03,
+        0x08,
+        0x88,
+        0x02,
+        0x08,
+        0xB8,
+        0x04,
+        0xFF,
+        0x37,
+        0x08,
+        0x01,
+        0x30,
+        0x18,
+        0x01,
+        0x90,
+        0x30,
+        0x00,
+        0xC0,
+        0x60,
+        0x00,
+        0x60,
+        0xC0,
+        0x00,
+        0x31,
+        0x80,
+        0x00,
+        0x1B,
+        0x00,
+        0x00,
+        0x0E,
+        0x00,
+        0x00,
+        0x04,
+        0x00,
+};
+
+static const unsigned char PROGMEM O2_bmp[] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x00, 0x3f, 0xc3, 0xf8, 0x00, 0xff, 0xf3, 0xfc,
+    0x03, 0xff, 0xff, 0xfe, 0x07, 0xff, 0xff, 0xfe, 0x0f, 0xff, 0xff, 0xfe, 0x0f, 0xff, 0xff, 0x7e,
+    0x1f, 0x80, 0xff, 0xfc, 0x1f, 0x00, 0x7f, 0xb8, 0x3e, 0x3e, 0x3f, 0xb0, 0x3e, 0x3f, 0x3f, 0xc0,
+    0x3e, 0x3f, 0x1f, 0xc0, 0x3e, 0x3f, 0x1f, 0xc0, 0x3e, 0x3f, 0x1f, 0xc0, 0x3e, 0x3e, 0x2f, 0xc0,
+    0x3e, 0x3f, 0x0f, 0x80, 0x1f, 0x1c, 0x2f, 0x80, 0x1f, 0x80, 0xcf, 0x80, 0x1f, 0xe3, 0x9f, 0x00,
+    0x0f, 0xff, 0x3f, 0x00, 0x07, 0xfe, 0xfe, 0x00, 0x0b, 0xfe, 0x0c, 0x00, 0x1d, 0xff, 0xf8, 0x00,
+    0x1e, 0xff, 0xe0, 0x00, 0x1f, 0xff, 0x00, 0x00, 0x1f, 0xf0, 0x00, 0x00, 0x1f, 0xe0, 0x00, 0x00,
+    0x0f, 0xe0, 0x00, 0x00, 0x07, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+// 'temperature', 30x30px
+const unsigned char epd_bitmap_temperature[] PROGMEM = {
+    0xff, 0xf8, 0x1f, 0xfc, 0xff, 0xf8, 0x1f, 0xfc, 0xff, 0xe0, 0x07, 0xfc, 0xff, 0xe0, 0x07, 0xfc,
+    0xff, 0xc1, 0xe7, 0xfc, 0xff, 0x80, 0xc7, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0x07, 0xfc,
+    0xff, 0x81, 0xe7, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0xc7, 0xfc,
+    0xff, 0x81, 0xe7, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x81, 0xe7, 0xfc,
+    0xff, 0x81, 0xe7, 0xfc, 0xff, 0x00, 0x03, 0xfc, 0xfe, 0x00, 0x01, 0xfc, 0xfc, 0x00, 0x00, 0xfc,
+    0xfc, 0x00, 0x00, 0xfc, 0xfc, 0x00, 0x00, 0xfc, 0xfc, 0x00, 0x00, 0xfc, 0xfc, 0x00, 0x00, 0xfc,
+    0xfc, 0x00, 0x00, 0xfc, 0xfc, 0x00, 0x00, 0xfc, 0xfe, 0x00, 0x01, 0xfc, 0xff, 0x00, 0x03, 0xfc,
+    0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0x07, 0xfc};
+
+// Array of all bitmaps for convenience. (Total bytes used to store images in PROGMEM = 144)
+const int epd_bitmap_allArray_LEN = 1;
+const unsigned char *epd_bitmap_allArray[1] = {
+    epd_bitmap_temperature};
+
+unsigned char bluetooth_icon16x16[] =
+    {
+        0b00000000, 0b00000000, //
+        0b00000001, 0b10000000, //        ##
+        0b00000001, 0b11000000, //        ###
+        0b00000001, 0b01100000, //        # ##
+        0b00001001, 0b00110000, //     #  #  ##
+        0b00001101, 0b00110000, //     ## #  ##
+        0b00000111, 0b01100000, //      ### ##
+        0b00000011, 0b11000000, //       ####
+        0b00000001, 0b10000000, //        ##
+        0b00000011, 0b11000000, //       ####
+        0b00000111, 0b01100000, //      ### ##
+        0b00001101, 0b00110000, //     ## #  ##
+        0b00001001, 0b00110000, //     #  #  ##
+        0b00000001, 0b01100000, //        # ##
+        0b00000001, 0b11000000, //        ###
+        0b00000001, 0b10000000, //        ##
+};
 // =============================================================================================
 
 // Timer variables
@@ -85,9 +210,15 @@ void setup()
   while (!Serial)
     ;
 
+  // OLED DISPLAY SETUP
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Start the OLED display
+  display.display();
+  display.clearDisplay();
+
   // SENSOR SETUP
   // =================================================================================
-  Serial.println("Mulai Sistem");
+  display.setCursor(0, 0);
+  display.println("Mulai Sistem");
   delay(1000);
   // if (!mlx.begin())
   // {
@@ -156,6 +287,7 @@ void setup()
   Serial.println(myAddress.toString().c_str());
   Serial.println("");
   // =================================================================================
+  display.clearDisplay();
 }
 
 void loop()
@@ -228,6 +360,17 @@ void loop()
         {
           Serial.print("Detak Jantung:" + String(beatAvg));
           Serial.print(", SpO2:" + String(ESpO2) + " %");
+          display.clearDisplay();
+          display.drawBitmap(5, 5, logo2_bmp, 24, 21, WHITE);
+          display.setTextSize(2);
+          display.setTextColor(WHITE);
+          display.setCursor(42, 10);
+          display.print(String(beatAvg));
+          display.println(" BPM");
+          display.drawBitmap(0, 35, O2_bmp, 32, 32, WHITE);
+          display.setCursor(42, 40);
+          display.print(String(ESpO2) + " %");
+          display.display();
           String dataOksimeter = "[" + String(ESpO2) + ", " + String(beatAvg) + "]";
           pOksimeterCharacteristic->setValue(dataOksimeter.c_str());
           pOksimeterCharacteristic->notify();
@@ -236,6 +379,17 @@ void loop()
         {
           Serial.print("Detak Jantung: ... ");
           Serial.print(", SpO2: .... %");
+          display.clearDisplay();
+          display.drawBitmap(5, 5, logo2_bmp, 24, 21, WHITE);
+          display.setTextSize(2);
+          display.setTextColor(WHITE);
+          display.setCursor(42, 10);
+          display.print("...");
+          display.println(" BPM");
+          display.drawBitmap(0, 35, O2_bmp, 32, 32, WHITE);
+          display.setCursor(42, 40);
+          display.print("... %");
+          display.display();
         }
         Serial.println("");
         lastTime = millis();
@@ -267,6 +421,19 @@ void loop()
       String tempString = "[" + String(suhuTubuh) + "]";
       pTermometerCharacteristic->setValue(tempString.c_str());
       pTermometerCharacteristic->notify();
+
+      display.clearDisplay();
+      display.drawBitmap(0, 18, epd_bitmap_temperature, 30, 30, 1);
+      display.setTextSize(1);
+      display.setTextColor(WHITE);
+      display.setCursor(40, 18);
+      display.print("Body Temp ");
+      display.setTextSize(2);
+      display.setCursor(40, 33);
+      display.print(suhuTubuh);
+      display.println(" C");
+      display.display();
+
       lastTime = millis();
     }
   }
@@ -278,5 +445,12 @@ void loop()
     digitalWrite(LED_BUILTIN, LOW);
     particleSensor.setPulseAmplitudeRed(0); // Nyalakan LED Merah ke rendah untuk menunjukkan sensor sedang berjalan
     Serial.println("Bluetooth tidak tersambung...");
+    display.clearDisplay();
+    display.drawBitmap(0, 20, bluetooth_icon16x16, 16, 16, 1);
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+    display.setCursor(30, 20);
+    display.print("Waiting ");
+    display.display();
   }
 }
