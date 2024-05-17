@@ -18,43 +18,10 @@
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1 // Ada beberapa board yang memerlukan reset pin
 
-// BLUETOOTH LOW ENERGY
-// =============================================================================================
-#define BLE_SERVER_NAME "esp32-server"
-// SERVEICE UUID
-#define SERVEICE_UUID "f024821c-45fd-4c07-a27d-185f92699c4c"
-// CHARACTERISTIC UUID
-#define OKSIMETER_CHARACTERISTIC_UUID "0e1c52dc-6e6f-462d-89ed-9c30d3564ce3"
-#define TERMOMETER_CHARACTERISTIC_UUID "7f7cdd10-883b-4611-aa6a-939078035f7d"
-// Define variabels
-BLECharacteristic *pOksimeterCharacteristic = NULL;
-BLECharacteristic *pTermometerCharacteristic = NULL;
-BLEServer *pServer = NULL;
-// connection
-bool deviceConnected = false;
-
-class MyServerCallback : public BLEServerCallbacks
-{
-  void onConnect(BLEServer *pServer)
-  {
-    deviceConnected = true;
-    BLEDevice::startAdvertising();
-  };
-  void onDisconnect(BLEServer *pServer)
-  {
-    deviceConnected = false;
-  }
-};
-// =============================================================================================
-
 // HARDWARE SENSOR
 // =============================================================================================
 MAX30105 particleSensor;
 Adafruit_MLX90614 mlx = Adafruit_MLX90614();
-
-// Alamat I2C yang ditetapkan untuk sensor
-#define MAX30102_I2C_ADDRESS 0x57
-#define MLX90614_I2C_ADDRESS 0x5A
 
 // Variabel untuk menghitung detak jantung
 const byte RATE_SIZE = 4; // Jumlah rata-rata
@@ -111,39 +78,9 @@ const unsigned char epd_bitmap_temperature[] PROGMEM = {
 unsigned long lastTime = 0;
 unsigned long timerDelay = 1000;
 
-void displayBluetoothStatus()
-{
-  String text;
-  if (deviceConnected)
-  {
-    text = "Tersambung";
-  }
-  else
-  {
-    text = "Tidak tersambung";
-  }
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-
-  // Mengatur posisi kursor untuk teks "Waiting"
-  int16_t x, y;
-  uint16_t w, h;
-  display.getTextBounds(text, 0, 0, &x, &y, &w, &h);
-
-  // Menampilkan teks "Tidak tersambung" di bagian bawah
-  display.setCursor((SCREEN_WIDTH - w - 16 - 5) / 2 + 16, SCREEN_HEIGHT - h - 2);
-  display.print(text);
-
-  // Menampilkan logo Bluetooth di samping teks
-  display.drawBitmap((SCREEN_WIDTH - w - 16 - 5) / 2, SCREEN_HEIGHT - h - 4, bluetooth_icon12x12, 12, 12, 1);
-
-  display.display();
-}
-
 void setup()
 {
   Wire.begin(21, 22);
-  // mlx.begin();
   Serial.begin(115200);
   while (!Serial)
     ;
@@ -151,49 +88,6 @@ void setup()
   // OLED DISPLAY SETUP
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Start the OLED display
   display.display();
-  display.clearDisplay();
-
-  // BLE SETUP
-  // =================================================================================
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);
-  BLEDevice::init(BLE_SERVER_NAME);
-  // create ble server
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallback());
-  // create ble serveice
-  BLEService *service = pServer->createService(SERVEICE_UUID);
-  // Create a BLE Characteristic
-  pOksimeterCharacteristic = service->createCharacteristic(
-      OKSIMETER_CHARACTERISTIC_UUID,
-      BLECharacteristic::PROPERTY_READ |
-          BLECharacteristic::PROPERTY_WRITE |
-          BLECharacteristic::PROPERTY_NOTIFY |
-          BLECharacteristic::PROPERTY_INDICATE);
-  pOksimeterCharacteristic->addDescriptor(new BLE2902());
-  pTermometerCharacteristic = service->createCharacteristic(
-      TERMOMETER_CHARACTERISTIC_UUID,
-      BLECharacteristic::PROPERTY_READ |
-          BLECharacteristic::PROPERTY_WRITE |
-          BLECharacteristic::PROPERTY_NOTIFY |
-          BLECharacteristic::PROPERTY_INDICATE);
-  pTermometerCharacteristic->addDescriptor(new BLE2902());
-  // start service
-  service->start();
-
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVEICE_UUID);
-  // pAdvertising->setMinPreferred(0x0);
-  pAdvertising->setMinPreferred(0x06);
-  pAdvertising->setMinPreferred(0x12);
-  pServer->getAdvertising()->start();
-  Serial.println("Waiting a client connection to notify...");
-
-  BLEAddress myAddress = BLEDevice::getAddress();
-  Serial.print("Mac address: ");
-  Serial.println(myAddress.toString().c_str());
-  Serial.println("");
-  // =================================================================================
   display.clearDisplay();
 
   // SENSOR SETUP
@@ -308,9 +202,6 @@ void loop()
         display.setCursor(30, 30);
         display.print(String(ESpO2) + " %");
         display.display();
-        String dataOksimeter = "[" + String(ESpO2) + ", " + String(beatAvg) + "]";
-        pOksimeterCharacteristic->setValue(dataOksimeter.c_str());
-        pOksimeterCharacteristic->notify();
       }
       else
       {
@@ -357,11 +248,6 @@ void loop()
       // Cek apakah suhu tubuh dalam rentang manusia (sekitar 30°C hingga 40°C)
       if (suhuTubuh > 30.0 && suhuTubuh < 40.0)
       {
-        Serial.println("Suhu Tubuh: " + String(suhuTubuh));
-        String tempString = "[" + String(suhuTubuh) + "]";
-        pTermometerCharacteristic->setValue(tempString.c_str());
-        pTermometerCharacteristic->notify();
-
         display.clearDisplay();
         display.drawBitmap(0, 5, epd_bitmap_temperature, 30, 30, 1);
         display.setTextSize(1);
@@ -380,7 +266,7 @@ void loop()
         Serial.println("Tidak ada objek manusia terdeteksi.");
 
         const char *line1 = "Sensor belum";
-        const char *line2 = "digunakan";
+        const char *line2 = "digunakan!";
         int16_t x1, y1;
         uint16_t w1, h1, w2, h2;
 
@@ -413,21 +299,5 @@ void loop()
 
       lastTime = millis();
     }
-  }
-
-  displayBluetoothStatus();
-
-  // ketika device tidak terkoneksi
-  if (deviceConnected)
-  {
-    digitalWrite(LED_BUILTIN, HIGH);
-  }
-  else
-  {
-    // delay(1000);
-    // // restar adversting
-    // pServer->startAdvertising();
-    digitalWrite(LED_BUILTIN, LOW);
-    // Serial.println("Bluetooth tidak tersambung...");
   }
 }
