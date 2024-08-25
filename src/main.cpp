@@ -8,10 +8,18 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <Wire.h>
+
 // for oled lcd
 #include <Adafruit_GFX.h> //OLED libraries
 #include <Adafruit_SSD1306.h>
 #include <SPI.h>
+
+// Buzzer
+#define BUZZER_PIN 17
+
+// for ultrasonik
+#define TRIG_PIN 14 // ESP32 pin GIOP23 connected to Ultrasonic Sensor's TRIG pin d14
+#define ECHO_PIN 12 // ESP32 pin GIOP22 connected to Ultrasonic Sensor's ECHO pin d12
 
 // Ukuran layar OLED
 #define SCREEN_WIDTH 128
@@ -71,6 +79,7 @@ double sumirrms = 0;
 double sumredrms = 0;
 // Variabel suhu tubuh celcius
 double suhuTubuh = 0;
+float jarak = 0;
 
 double SpO2 = 0;
 double ESpO2 = 90.0; // Nilai awal
@@ -109,7 +118,9 @@ const unsigned char epd_bitmap_temperature[] PROGMEM = {
 
 // Timer variables
 unsigned long lastTime = 0;
+unsigned long lastTimeTermo = 0;
 unsigned long timerDelay = 1000;
+unsigned long timerDelayTermo = 1000;
 
 void displayBluetoothStatus()
 {
@@ -140,6 +151,23 @@ void displayBluetoothStatus()
   display.display();
 }
 
+// TODO ADA ERROR DI CEK JARAK, KETIKA ULTRASONIKNYA DIAKTIFKAN
+void cekJarak()
+{
+  float duration_us, distance_cm;
+  // generate 10-microsecond pulse to TRIG pin
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  // measure duration of pulse from ECHO pin
+  duration_us = pulseIn(ECHO_PIN, HIGH);
+
+  // calculate the distance
+  jarak = duration_us * 0.034 / 2;
+  delay(500);
+}
+
 void setup()
 {
   Wire.begin(21, 22);
@@ -152,6 +180,14 @@ void setup()
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Start the OLED display
   display.display();
   display.clearDisplay();
+
+  // ULTRASONIK
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  // Buzzer
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
 
   // BLE SETUP
   // =================================================================================
@@ -222,12 +258,22 @@ void setup()
   int sampleRate = 800;      // Opsi: 50, 100, 200, 400, 800, 1000, 1600, 3200
   int pulseWidth = 215;      // Opsi: 69, 118, 215, 411
   int adcRange = 16384;      // Opsi: 2048, 4096, 8192, 16384
+  // byte ledBrightness = 60;   // 0x7F  // Kecerahan LED disarankan = 127, Opsi: 0=Matikan hingga 255=50mA
+  // byte sampleAverage = 4;    // Opsi: 1, 2, 4, 8, 16, 32
+  // byte ledMode = 2;          // Opsi: 1 = Hanya merah (detak jantung), 2 = Merah + IR (SpO2)
+  // int sampleRate = 100;      // 800      // Opsi: 50, 100, 200, 400, 800, 1000, 1600, 3200
+  // int pulseWidth = 411;      // 215      // Opsi: 69, 118, 215, 411
+  // int adcRange = 4096;       // 16384      // Opsi: 2048, 4096, 8192, 16384
   // Atur parameter yang diinginkan
   particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange); // Konfigurasi sensor max30102 dengan pengaturan ini
   particleSensor.enableDIETEMPRDY();
   particleSensor.setPulseAmplitudeRed(0x0A); // Nyalakan LED Merah ke rendah untuk menunjukkan sensor sedang berjalan
   particleSensor.setPulseAmplitudeGreen(0);  // Matikan LED Hijau
   // =================================================================================
+
+  // digitalWrite(BUZZER_PIN, HIGH);
+  // delay(2000);
+  // digitalWrite(BUZZER_PIN, LOW);
 }
 
 void loop()
@@ -293,39 +339,46 @@ void loop()
     // Menampilkan data ke dalam serial monitor
     if ((millis() - lastTime) > timerDelay)
     {
-      if (beatAvg > 30)
+      float kalibrasiSPO = (0.009 * (ESpO2 * ESpO2)) - (1.2336 * ESpO2) + 140.41;
+      if (beatAvg >= 40)
       {
+        float kalibrasiDetakJantung = (0.0085 * (beatAvg * beatAvg)) - (1.1818 * beatAvg) + 126.17;
         Serial.print("Detak Jantung:" + String(beatAvg));
-        Serial.print(", SpO2:" + String(ESpO2) + " %");
+        Serial.print(", Detak Jantung Kalibrasi:" + String(kalibrasiDetakJantung));
+        Serial.print(", SpO2:" + String(kalibrasiSPO) + " %");
+        Serial.println("");
         display.clearDisplay();
         display.setTextSize(1);
         display.drawBitmap(5, 5, hearth_icon12x12, 12, 12, WHITE);
         display.setTextColor(WHITE);
         display.setCursor(30, 5);
-        display.print(String(beatAvg));
+        display.print(String(kalibrasiDetakJantung));
         display.println(" BPM");
         display.drawBitmap(5, 30, blood_icon12x12, 12, 12, WHITE);
         display.setCursor(30, 30);
-        display.print(String(ESpO2) + " %");
+        display.print(String(kalibrasiSPO) + " %");
         display.display();
-        String dataOksimeter = "[" + String(ESpO2) + ", " + String(beatAvg) + "]";
-        pOksimeterCharacteristic->setValue(dataOksimeter.c_str());
-        pOksimeterCharacteristic->notify();
+        if (deviceConnected)
+        {
+          String dataOksimeter = "[" + String(kalibrasiSPO) + ", " + String(kalibrasiDetakJantung) + "]";
+          pOksimeterCharacteristic->setValue(dataOksimeter.c_str());
+          pOksimeterCharacteristic->notify();
+        }
       }
       else
       {
         Serial.print("Detak Jantung:" + String(beatAvg));
-        Serial.print(", SpO2:" + String(ESpO2) + " %");
+        Serial.print(", SpO2:" + String(kalibrasiSPO) + " %");
         display.clearDisplay();
         display.setTextSize(1);
         display.drawBitmap(5, 5, hearth_icon12x12, 12, 12, WHITE);
         display.setTextColor(WHITE);
         display.setCursor(30, 5);
-        display.print("...");
+        display.print("Loading...");
         display.println(" BPM");
         display.drawBitmap(5, 30, blood_icon12x12, 12, 12, WHITE);
         display.setCursor(30, 30);
-        display.print("... %");
+        display.print(String(kalibrasiSPO) + " %");
         display.display();
       }
       Serial.println("");
@@ -349,38 +402,101 @@ void loop()
     SpO2 = 0;
     ESpO2 = 90.0;
 
-    // Pengecekan Suhu
-    if ((millis() - lastTime) > timerDelay)
-    {
-      suhuTubuh = mlx.readObjectTempC();
-      Serial.println(suhuTubuh);
-      // Cek apakah suhu tubuh dalam rentang manusia (sekitar 30°C hingga 40°C)
-      if (suhuTubuh > 30.0 && suhuTubuh < 40.0)
-      {
-        Serial.println("Suhu Tubuh: " + String(suhuTubuh));
-        String tempString = "[" + String(suhuTubuh) + "]";
-        pTermometerCharacteristic->setValue(tempString.c_str());
-        pTermometerCharacteristic->notify();
+    cekJarak();
 
-        display.clearDisplay();
-        display.drawBitmap(0, 5, epd_bitmap_temperature, 30, 30, 1);
-        display.setTextSize(1);
-        display.setTextColor(WHITE);
-        display.setCursor(40, 5);
-        display.print("Body Temp ");
-        display.setTextSize(2);
-        display.setCursor(40, 20);
-        display.print(suhuTubuh);
-        display.println(" C");
-        display.display();
+    // Pengecekan Suhu
+    if ((millis() - lastTimeTermo) > timerDelayTermo)
+    {
+
+      // suhuTubuh = mlx.readAmbientTempC();
+      Serial.println("Jarak: " + String(jarak));
+      if (jarak > 3 && jarak < 6)
+      {
+        if (suhuTubuh == 0)
+        {
+          suhuTubuh = mlx.readObjectTempC();
+          // // Kalikan dengan 10 untuk menggeser satu angka desimal ke kanan
+          // float suhuTubuhScaled = suhuTubuh * 10.0;
+
+          // // Bulatkan ke atas menggunakan fungsi ceil
+          // float suhuTubuhScaledRounded = ceil(suhuTubuhScaled);
+
+          // // Kembalikan ke skala semula dengan membagi 10
+          // float suhuTubuhFinal = suhuTubuhScaledRounded / 10.0;
+
+          // suhuTubuh = suhuTubuhFinal + 7;
+          // Serial.println(suhuTubuhFinal);
+
+          float kalibrasiSuhuTubuh = (0.0154 * (suhuTubuh * suhuTubuh)) - (0.9951 * suhuTubuh) + 52.745;
+
+          // Cek apakah suhu tubuh dalam rentang manusia (sekitar 30°C hingga 40°C)
+          // if (suhuTubuh > 30.0 && suhuTubuh < 40.0)
+          // {
+          digitalWrite(BUZZER_PIN, HIGH);
+          delay(300);
+          digitalWrite(BUZZER_PIN, LOW);
+          Serial.println("Suhu Tubuh: " + String(kalibrasiSuhuTubuh));
+          if (deviceConnected)
+          {
+            String tempString = "[" + String(kalibrasiSuhuTubuh) + "]";
+            pTermometerCharacteristic->setValue(tempString.c_str());
+            pTermometerCharacteristic->notify();
+          }
+          display.clearDisplay();
+          display.drawBitmap(0, 5, epd_bitmap_temperature, 30, 30, 1);
+          display.setTextSize(1);
+          display.setTextColor(WHITE);
+          display.setCursor(40, 5);
+          display.print("Body Temp ");
+          display.setTextSize(2);
+          display.setCursor(40, 20);
+          display.print(kalibrasiSuhuTubuh);
+          display.println(" C");
+          display.display();
+          // }
+          // else
+          // {
+          //   const char *line1 = "Objek Bukan";
+          //   const char *line2 = "Manusia";
+          //   int16_t x1, y1;
+          //   uint16_t w1, h1, w2, h2;
+
+          //   // Menghitung lebar dan tinggi teks untuk setiap baris
+          //   display.setTextSize(1);
+          //   display.getTextBounds(line1, 0, 0, &x1, &y1, &w1, &h1);
+          //   display.getTextBounds(line2, 0, 0, &x1, &y1, &w2, &h2);
+
+          //   // Menghitung posisi kursor untuk menempatkan teks di tengah layar
+          //   int16_t x1_pos = (SCREEN_WIDTH - w1) / 2;
+          //   // int16_t y1_pos = (SCREEN_HEIGHT / 2) - h1;
+          //   int16_t y1_pos = 5;
+          //   int16_t x2_pos = (SCREEN_WIDTH - w2) / 2;
+          //   // int16_t y2_pos = (SCREEN_HEIGHT / 2);
+          //   int16_t y2_pos = 20;
+
+          //   display.clearDisplay();
+          //   display.setTextColor(WHITE);
+
+          //   // Menampilkan baris pertama
+          //   display.setCursor(x1_pos, y1_pos);
+          //   display.print(line1);
+
+          //   // Menampilkan baris kedua
+          //   display.setCursor(x2_pos, y2_pos);
+          //   display.print(line2);
+
+          //   display.display();
+          // }
+        }
       }
       else
       {
+        suhuTubuh = 0;
         // Jika suhu tidak dalam rentang manusia, tampilkan pesan berbeda atau kosongkan display
         Serial.println("Tidak ada objek manusia terdeteksi.");
 
-        const char *line1 = "Sensor belum";
-        const char *line2 = "digunakan";
+        const char *line1 = "Tidak Ada Objek";
+        const char *line2 = "Terdeteksi";
         int16_t x1, y1;
         uint16_t w1, h1, w2, h2;
 
@@ -411,7 +527,7 @@ void loop()
         display.display();
       }
 
-      lastTime = millis();
+      lastTimeTermo = millis();
     }
   }
 

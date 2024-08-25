@@ -1,0 +1,544 @@
+// #include <Arduino.h>
+// #include "MAX30105.h"  //MAX3010x library
+// #include "heartRate.h" //Heart rate calculating algorithm
+// #include <Adafruit_MLX90614.h>
+// #include <SPI.h>
+// #include <BLEDevice.h>
+// #include <BLEServer.h>
+// #include <BLEUtils.h>
+// #include <BLE2902.h>
+// #include <Wire.h>
+
+// // for oled lcd
+// #include <Adafruit_GFX.h> //OLED libraries
+// #include <Adafruit_SSD1306.h>
+// #include <SPI.h>
+
+// // Buzzer
+// #define BUZZER_PIN 17
+
+// // for ultrasonik
+// #define TRIG_PIN 14 // ESP32 pin GIOP23 connected to Ultrasonic Sensor's TRIG pin d14
+// #define ECHO_PIN 12 // ESP32 pin GIOP22 connected to Ultrasonic Sensor's ECHO pin d12
+
+// // Ukuran layar OLED
+// #define SCREEN_WIDTH 128
+// #define SCREEN_HEIGHT 64
+// #define OLED_RESET -1 // Ada beberapa board yang memerlukan reset pin
+
+// // BLUETOOTH LOW ENERGY
+// // =============================================================================================
+// #define BLE_SERVER_NAME "esp32-server"
+// // SERVEICE UUID
+// #define SERVEICE_UUID "f024821c-45fd-4c07-a27d-185f92699c4c"
+// // CHARACTERISTIC UUID
+// #define OKSIMETER_CHARACTERISTIC_UUID "0e1c52dc-6e6f-462d-89ed-9c30d3564ce3"
+// #define TERMOMETER_CHARACTERISTIC_UUID "7f7cdd10-883b-4611-aa6a-939078035f7d"
+// // Define variabels
+// BLECharacteristic *pOksimeterCharacteristic = NULL;
+// BLECharacteristic *pTermometerCharacteristic = NULL;
+// BLEServer *pServer = NULL;
+// // connection
+// bool deviceConnected = false;
+
+// class MyServerCallback : public BLEServerCallbacks
+// {
+//   void onConnect(BLEServer *pServer)
+//   {
+//     deviceConnected = true;
+//     BLEDevice::startAdvertising();
+//   };
+//   void onDisconnect(BLEServer *pServer)
+//   {
+//     deviceConnected = false;
+//   }
+// };
+// // =============================================================================================
+
+// // HARDWARE SENSOR
+// // =============================================================================================
+// MAX30105 particleSensor;
+// Adafruit_MLX90614 mlx = Adafruit_MLX90614();
+
+// // Alamat I2C yang ditetapkan untuk sensor
+// #define MAX30102_I2C_ADDRESS 0x57
+// #define MLX90614_I2C_ADDRESS 0x5A
+
+// // Variabel untuk menghitung detak jantung
+// const byte RATE_SIZE = 4; // Jumlah rata-rata
+// byte rates[RATE_SIZE];    // Array detak jantung
+// byte rateSpot = 0;
+// long lastBeat = 0; // Waktu ketika detak terakhir terjadi
+// float beatsPerMinute;
+// int beatAvg;
+
+// // Variabel untuk menghitung SpO2
+// double avered = 0;
+// double aveir = 0;
+// double sumirrms = 0;
+// double sumredrms = 0;
+// // Variabel suhu tubuh celcius
+// double suhuTubuh = 0;
+// float jarak = 0;
+
+// double SpO2 = 0;
+// double ESpO2 = 90.0; // Nilai awal
+// double FSpO2 = 0.7;  // Faktor penyaringan untuk SpO2 yang diestimasi
+// double frate = 0.95; // Penyaring rendah untuk nilai LED IR/merah untuk menghilangkan komponen AC
+// int i = 0;
+// int Num = 30;             // Ambil sampel 30 kali sebelum menghitung sekali
+// #define FINGER_ON 7000    // Jumlah minimum inframerah (untuk menentukan apakah jari ada atau tidak)
+// #define MINIMUM_SPO2 90.0 // Jumlah minimum SpO2
+
+// // OLED LCD
+// #define SCREEN_WIDTH 128 // OLED display width, in pixels
+// #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+// #define OLED_RESET -1    // Reset pin # (or -1 if sharing Arduino reset pin)
+
+// Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET); // Declaring the display name (display)
+
+// const unsigned char hearth_icon12x12[] PROGMEM = {
+//     0x00, 0x00, 0x18, 0x60, 0x7f, 0xf8, 0xff, 0xfc, 0xf3, 0xfc, 0xf3, 0x7c, 0x61, 0x38, 0x0c, 0x80,
+//     0x3c, 0xf0, 0x1f, 0xe0, 0x0f, 0xc0, 0x07, 0x80, 0x03, 0x00, 0x00, 0x00};
+// const unsigned char bluetooth_icon12x12[] PROGMEM = {
+//     0x00, 0x00, 0x18, 0x00, 0x1c, 0x00, 0x54, 0x00, 0x3c, 0x00, 0x18, 0x00, 0x18, 0x00, 0x3c, 0x00,
+//     0x56, 0x00, 0x1c, 0x00, 0x18, 0x00, 0x00, 0x00};
+// const unsigned char blood_icon12x12[] PROGMEM = {
+//     0x0c, 0x00, 0x0e, 0x00, 0x1f, 0x00, 0x3f, 0x00, 0x3f, 0x80, 0x7f, 0x80, 0x7f, 0xc0, 0xff, 0xc0,
+//     0xff, 0xc0, 0xdf, 0xc0, 0xdf, 0xc0, 0x67, 0xc0, 0x3f, 0x80, 0x1f, 0x00};
+// const unsigned char epd_bitmap_temperature[] PROGMEM = {
+//     0xff, 0xf8, 0x1f, 0xfc, 0xff, 0xf8, 0x1f, 0xfc, 0xff, 0xe0, 0x07, 0xfc, 0xff, 0xe0, 0x07, 0xfc,
+//     0xff, 0xc1, 0xe7, 0xfc, 0xff, 0x80, 0xc7, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0x07, 0xfc,
+//     0xff, 0x81, 0xe7, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0xc7, 0xfc,
+//     0xff, 0x81, 0xe7, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0x07, 0xfc, 0xff, 0x81, 0xe7, 0xfc,
+//     0xff, 0x81, 0xe7, 0xfc, 0xff, 0x00, 0x03, 0xfc, 0xfe, 0x00, 0x01, 0xfc, 0xfc, 0x00, 0x00, 0xfc,
+//     0xfc, 0x00, 0x00, 0xfc, 0xfc, 0x00, 0x00, 0xfc, 0xfc, 0x00, 0x00, 0xfc, 0xfc, 0x00, 0x00, 0xfc,
+//     0xfc, 0x00, 0x00, 0xfc, 0xfc, 0x00, 0x00, 0xfc, 0xfe, 0x00, 0x01, 0xfc, 0xff, 0x00, 0x03, 0xfc,
+//     0xff, 0x80, 0x07, 0xfc, 0xff, 0x80, 0x07, 0xfc};
+
+// // Timer variables
+// unsigned long lastTime = 0;
+// unsigned long lastTimeTermo = 0;
+// unsigned long timerDelay = 1000;
+// unsigned long timerDelayTermo = 1000;
+
+// void displayBluetoothStatus()
+// {
+//   String text;
+//   if (deviceConnected)
+//   {
+//     text = "Tersambung";
+//   }
+//   else
+//   {
+//     text = "Tidak tersambung";
+//   }
+//   display.setTextSize(1);
+//   display.setTextColor(WHITE);
+
+//   // Mengatur posisi kursor untuk teks "Waiting"
+//   int16_t x, y;
+//   uint16_t w, h;
+//   display.getTextBounds(text, 0, 0, &x, &y, &w, &h);
+
+//   // Menampilkan teks "Tidak tersambung" di bagian bawah
+//   display.setCursor((SCREEN_WIDTH - w - 16 - 5) / 2 + 16, SCREEN_HEIGHT - h - 2);
+//   display.print(text);
+
+//   // Menampilkan logo Bluetooth di samping teks
+//   display.drawBitmap((SCREEN_WIDTH - w - 16 - 5) / 2, SCREEN_HEIGHT - h - 4, bluetooth_icon12x12, 12, 12, 1);
+
+//   display.display();
+// }
+
+// // TODO ADA ERROR DI CEK JARAK, KETIKA ULTRASONIKNYA DIAKTIFKAN
+// void cekJarak()
+// {
+//   float duration_us, distance_cm;
+//   // generate 10-microsecond pulse to TRIG pin
+//   digitalWrite(TRIG_PIN, HIGH);
+//   delayMicroseconds(10);
+//   digitalWrite(TRIG_PIN, LOW);
+
+//   // measure duration of pulse from ECHO pin
+//   duration_us = pulseIn(ECHO_PIN, HIGH);
+
+//   // calculate the distance
+//   jarak = duration_us * 0.034 / 2;
+//   delay(500);
+// }
+
+// void setup()
+// {
+//   Wire.begin(21, 22);
+//   // mlx.begin();
+//   Serial.begin(115200);
+//   while (!Serial)
+//     ;
+
+//   // OLED DISPLAY SETUP
+//   display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Start the OLED display
+//   display.display();
+//   display.clearDisplay();
+
+//   // ULTRASONIK
+//   pinMode(TRIG_PIN, OUTPUT);
+//   pinMode(ECHO_PIN, INPUT);
+
+//   // Buzzer
+//   pinMode(BUZZER_PIN, OUTPUT);
+//   digitalWrite(BUZZER_PIN, LOW);
+
+//   // BLE SETUP
+//   // =================================================================================
+//   pinMode(LED_BUILTIN, OUTPUT);
+//   digitalWrite(LED_BUILTIN, LOW);
+//   BLEDevice::init(BLE_SERVER_NAME);
+//   // create ble server
+//   pServer = BLEDevice::createServer();
+//   pServer->setCallbacks(new MyServerCallback());
+//   // create ble serveice
+//   BLEService *service = pServer->createService(SERVEICE_UUID);
+//   // Create a BLE Characteristic
+//   pOksimeterCharacteristic = service->createCharacteristic(
+//       OKSIMETER_CHARACTERISTIC_UUID,
+//       BLECharacteristic::PROPERTY_READ |
+//           BLECharacteristic::PROPERTY_WRITE |
+//           BLECharacteristic::PROPERTY_NOTIFY |
+//           BLECharacteristic::PROPERTY_INDICATE);
+//   pOksimeterCharacteristic->addDescriptor(new BLE2902());
+//   pTermometerCharacteristic = service->createCharacteristic(
+//       TERMOMETER_CHARACTERISTIC_UUID,
+//       BLECharacteristic::PROPERTY_READ |
+//           BLECharacteristic::PROPERTY_WRITE |
+//           BLECharacteristic::PROPERTY_NOTIFY |
+//           BLECharacteristic::PROPERTY_INDICATE);
+//   pTermometerCharacteristic->addDescriptor(new BLE2902());
+//   // start service
+//   service->start();
+
+//   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+//   pAdvertising->addServiceUUID(SERVEICE_UUID);
+//   // pAdvertising->setMinPreferred(0x0);
+//   pAdvertising->setMinPreferred(0x06);
+//   pAdvertising->setMinPreferred(0x12);
+//   pServer->getAdvertising()->start();
+//   Serial.println("Waiting a client connection to notify...");
+
+//   BLEAddress myAddress = BLEDevice::getAddress();
+//   Serial.print("Mac address: ");
+//   Serial.println(myAddress.toString().c_str());
+//   Serial.println("");
+//   // =================================================================================
+//   display.clearDisplay();
+
+//   // SENSOR SETUP
+//   // =================================================================================
+//   // SENSOR SUHU
+//   delay(1000);
+//   if (!mlx.begin())
+//   {
+//     Serial.println("tidak dapat menyambungkan MLX sensor. Check perkabelan.");
+//     while (1)
+//       ;
+//   };
+//   delay(3000);
+//   // SENSOR OKSIMETER
+//   if (!particleSensor.begin(Wire, I2C_SPEED_STANDARD)) // Gunakan port I2C default, kecepatan 100kHz
+//   {
+//     Serial.println("Tidak dapat menemukan MAX30102");
+//     while (1)
+//       ;
+//   }
+//   // =================================================================================
+
+//   byte ledBrightness = 0x7F; // Kecerahan LED disarankan = 127, Opsi: 0=Matikan hingga 255=50mA
+//   byte sampleAverage = 4;    // Opsi: 1, 2, 4, 8, 16, 32
+//   byte ledMode = 2;          // Opsi: 1 = Hanya merah (detak jantung), 2 = Merah + IR (SpO2)
+//   int sampleRate = 800;      // Opsi: 50, 100, 200, 400, 800, 1000, 1600, 3200
+//   int pulseWidth = 215;      // Opsi: 69, 118, 215, 411
+//   int adcRange = 16384;      // Opsi: 2048, 4096, 8192, 16384
+//   // byte ledBrightness = 60;   // 0x7F  // Kecerahan LED disarankan = 127, Opsi: 0=Matikan hingga 255=50mA
+//   // byte sampleAverage = 4;    // Opsi: 1, 2, 4, 8, 16, 32
+//   // byte ledMode = 2;          // Opsi: 1 = Hanya merah (detak jantung), 2 = Merah + IR (SpO2)
+//   // int sampleRate = 100;      // 800      // Opsi: 50, 100, 200, 400, 800, 1000, 1600, 3200
+//   // int pulseWidth = 411;      // 215      // Opsi: 69, 118, 215, 411
+//   // int adcRange = 4096;       // 16384      // Opsi: 2048, 4096, 8192, 16384
+//   // Atur parameter yang diinginkan
+//   particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange); // Konfigurasi sensor max30102 dengan pengaturan ini
+//   particleSensor.enableDIETEMPRDY();
+//   particleSensor.setPulseAmplitudeRed(0x0A); // Nyalakan LED Merah ke rendah untuk menunjukkan sensor sedang berjalan
+//   particleSensor.setPulseAmplitudeGreen(0);  // Matikan LED Hijau
+//   // =================================================================================
+
+//   // digitalWrite(BUZZER_PIN, HIGH);
+//   // delay(2000);
+//   // digitalWrite(BUZZER_PIN, LOW);
+// }
+
+// void loop()
+// {
+//   particleSensor.setPulseAmplitudeRed(0x0A); // Nyalakan LED Merah ke rendah untuk menunjukkan sensor sedang berjalan
+//   // pengecekan denyut jantung dan saturasi oksigen darah
+//   long irValue = particleSensor.getIR(); // Membaca nilai IR akan memperbolehkan kita untuk mengetahui apakah ada
+//   // mendeteksi jari
+//   if (irValue > FINGER_ON)
+//   {
+//     if (checkForBeat(irValue) == true)
+//     {
+//       long delta = millis() - lastBeat; // Menghitung perbedaan detak jantung
+//       lastBeat = millis();
+//       beatsPerMinute = 60 / (delta / 1000.0); // Menghitung detak jantung rata-rata
+//       if (beatsPerMinute < 255 && beatsPerMinute > 20)
+//       {
+//         // Detak jantung harus di antara 20-255
+//         rates[rateSpot++] = (byte)beatsPerMinute; // Menyimpan nilai detak jantung dalam array
+//         rateSpot %= RATE_SIZE;
+//         beatAvg = 0; // Menghitung nilai rata-rata
+//         for (byte x = 0; x < RATE_SIZE; x++)
+//           beatAvg += rates[x];
+//         beatAvg /= RATE_SIZE;
+//       }
+//     }
+
+//     // Mengukur SpO2
+//     uint32_t ir, red;
+//     double fred, fir;
+//     particleSensor.check(); // Periksa sensor, baca hingga 3 sampel
+//     if (particleSensor.available())
+//     {
+//       i++;
+//       ir = particleSensor.getFIFOIR();   // Membaca nilai IR
+//       red = particleSensor.getFIFORed(); // Membaca nilai merah
+//       // Serial.println("red=" + String(red) + ",IR=" + String(ir) + ",i=" + String(i));
+//       fir = (double)ir;                                      // Konversi ke double
+//       fred = (double)red;                                    // Konversi ke double
+//       aveir = aveir * frate + (double)ir * (1.0 - frate);    // level IR rata-rata oleh penyaringan rendah
+//       avered = avered * frate + (double)red * (1.0 - frate); // level merah rata-rata oleh penyaringan rendah
+//       sumirrms += (fir - aveir) * (fir - aveir);             // jumlah kuadrat komponen bergantian dari level IR
+//       sumredrms += (fred - avered) * (fred - avered);        // jumlah kuadrat komponen bergantian dari level merah
+
+//       if ((i % Num) == 0)
+//       {
+//         double R = (sqrt(sumirrms) / aveir) / (sqrt(sumredrms) / avered);
+//         SpO2 = -23.3 * (R - 0.4) + 100;
+//         ESpO2 = FSpO2 * ESpO2 + (1.0 - FSpO2) * SpO2; // penyaringan rendah
+//         // if (ESpO2 <= MINIMUM_SPO2)
+//         //   ESpO2 = MINIMUM_SPO2; // indikator untuk jari terlepas
+//         if (ESpO2 > 100)
+//           ESpO2 = 99.9;
+//         // Serial.print(",SPO2="); Serial.println(ESpO2);
+//         sumredrms = 0.0;
+//         sumirrms = 0.0;
+//         SpO2 = 0;
+//         i = 0;
+//       }
+//       particleSensor.nextSample(); // Selesai dengan sampel ini sehingga pindah ke sampel berikutnya
+//     }
+
+//     // Menampilkan data ke dalam serial monitor
+//     if ((millis() - lastTime) > timerDelay)
+//     {
+//       if (beatAvg >= 60)
+//       {
+//         Serial.print("Detak Jantung:" + String(beatAvg));
+//         Serial.print(", SpO2:" + String(ESpO2) + " %");
+//         Serial.println("");
+//         display.clearDisplay();
+//         display.setTextSize(1);
+//         display.drawBitmap(5, 5, hearth_icon12x12, 12, 12, WHITE);
+//         display.setTextColor(WHITE);
+//         display.setCursor(30, 5);
+//         display.print(String(beatAvg));
+//         display.println(" BPM");
+//         display.drawBitmap(5, 30, blood_icon12x12, 12, 12, WHITE);
+//         display.setCursor(30, 30);
+//         display.print(String(ESpO2) + " %");
+//         display.display();
+//         if (deviceConnected)
+//         {
+//           String dataOksimeter = "[" + String(ESpO2) + ", " + String(beatAvg) + "]";
+//           pOksimeterCharacteristic->setValue(dataOksimeter.c_str());
+//           pOksimeterCharacteristic->notify();
+//         }
+//       }
+//       else
+//       {
+//         Serial.print("Detak Jantung:" + String(beatAvg));
+//         Serial.print(", SpO2:" + String(ESpO2) + " %");
+//         display.clearDisplay();
+//         display.setTextSize(1);
+//         display.drawBitmap(5, 5, hearth_icon12x12, 12, 12, WHITE);
+//         display.setTextColor(WHITE);
+//         display.setCursor(30, 5);
+//         display.print("...");
+//         display.println(" BPM");
+//         display.drawBitmap(5, 30, blood_icon12x12, 12, 12, WHITE);
+//         display.setCursor(30, 30);
+//         display.print("... %");
+//         display.display();
+//       }
+//       Serial.println("");
+//       lastTime = millis();
+//     }
+//   }
+//   // Jika tidak mendeteksi jari, hapus semua data dan tampilkan "Jari Silahkan"
+//   else
+//   {
+//     // Menghapus data detak jantung
+//     for (byte rx = 0; rx < RATE_SIZE; rx++)
+//       rates[rx] = 0;
+//     beatAvg = 0;
+//     rateSpot = 0;
+//     lastBeat = 0;
+//     // Menghapus data SpO2
+//     avered = 0;
+//     aveir = 0;
+//     sumirrms = 0;
+//     sumredrms = 0;
+//     SpO2 = 0;
+//     ESpO2 = 90.0;
+
+//     cekJarak();
+
+//     // Pengecekan Suhu
+//     if ((millis() - lastTimeTermo) > timerDelayTermo)
+//     {
+
+//       // suhuTubuh = mlx.readAmbientTempC();
+//       Serial.println("Jarak: " + String(jarak));
+//       if (jarak > 5 && jarak < 10)
+//       {
+//         if (suhuTubuh == 0)
+//         {
+//           suhuTubuh = mlx.readObjectTempC();
+//           // Kalikan dengan 10 untuk menggeser satu angka desimal ke kanan
+//           float suhuTubuhScaled = suhuTubuh * 10.0;
+
+//           // Bulatkan ke atas menggunakan fungsi ceil
+//           float suhuTubuhScaledRounded = ceil(suhuTubuhScaled);
+
+//           // Kembalikan ke skala semula dengan membagi 10
+//           float suhuTubuhFinal = suhuTubuhScaledRounded / 10.0;
+
+//           // suhuTubuh = suhuTubuhFinal + 7;
+//           Serial.println(suhuTubuhFinal);
+
+//           // Cek apakah suhu tubuh dalam rentang manusia (sekitar 30°C hingga 40°C)
+//           // if (suhuTubuh > 30.0 && suhuTubuh < 40.0)
+//           // {
+//           digitalWrite(BUZZER_PIN, HIGH);
+//           delay(300);
+//           digitalWrite(BUZZER_PIN, LOW);
+//           Serial.println("Suhu Tubuh: " + String(suhuTubuh));
+//           if (deviceConnected)
+//           {
+//             String tempString = "[" + String(suhuTubuh) + "]";
+//             pTermometerCharacteristic->setValue(tempString.c_str());
+//             pTermometerCharacteristic->notify();
+//           }
+//           display.clearDisplay();
+//           display.drawBitmap(0, 5, epd_bitmap_temperature, 30, 30, 1);
+//           display.setTextSize(1);
+//           display.setTextColor(WHITE);
+//           display.setCursor(40, 5);
+//           display.print("Body Temp ");
+//           display.setTextSize(2);
+//           display.setCursor(40, 20);
+//           display.print(suhuTubuh);
+//           display.println(" C");
+//           display.display();
+//           // }
+//           // else
+//           // {
+//           //   const char *line1 = "Objek Bukan";
+//           //   const char *line2 = "Manusia";
+//           //   int16_t x1, y1;
+//           //   uint16_t w1, h1, w2, h2;
+
+//           //   // Menghitung lebar dan tinggi teks untuk setiap baris
+//           //   display.setTextSize(1);
+//           //   display.getTextBounds(line1, 0, 0, &x1, &y1, &w1, &h1);
+//           //   display.getTextBounds(line2, 0, 0, &x1, &y1, &w2, &h2);
+
+//           //   // Menghitung posisi kursor untuk menempatkan teks di tengah layar
+//           //   int16_t x1_pos = (SCREEN_WIDTH - w1) / 2;
+//           //   // int16_t y1_pos = (SCREEN_HEIGHT / 2) - h1;
+//           //   int16_t y1_pos = 5;
+//           //   int16_t x2_pos = (SCREEN_WIDTH - w2) / 2;
+//           //   // int16_t y2_pos = (SCREEN_HEIGHT / 2);
+//           //   int16_t y2_pos = 20;
+
+//           //   display.clearDisplay();
+//           //   display.setTextColor(WHITE);
+
+//           //   // Menampilkan baris pertama
+//           //   display.setCursor(x1_pos, y1_pos);
+//           //   display.print(line1);
+
+//           //   // Menampilkan baris kedua
+//           //   display.setCursor(x2_pos, y2_pos);
+//           //   display.print(line2);
+
+//           //   display.display();
+//           // }
+//         }
+//       }
+//       else
+//       {
+//         suhuTubuh = 0;
+//         // Jika suhu tidak dalam rentang manusia, tampilkan pesan berbeda atau kosongkan display
+//         Serial.println("Tidak ada objek manusia terdeteksi.");
+
+//         const char *line1 = "Tidak Ada Objek";
+//         const char *line2 = "Terdeteksi";
+//         int16_t x1, y1;
+//         uint16_t w1, h1, w2, h2;
+
+//         // Menghitung lebar dan tinggi teks untuk setiap baris
+//         display.setTextSize(1);
+//         display.getTextBounds(line1, 0, 0, &x1, &y1, &w1, &h1);
+//         display.getTextBounds(line2, 0, 0, &x1, &y1, &w2, &h2);
+
+//         // Menghitung posisi kursor untuk menempatkan teks di tengah layar
+//         int16_t x1_pos = (SCREEN_WIDTH - w1) / 2;
+//         // int16_t y1_pos = (SCREEN_HEIGHT / 2) - h1;
+//         int16_t y1_pos = 5;
+//         int16_t x2_pos = (SCREEN_WIDTH - w2) / 2;
+//         // int16_t y2_pos = (SCREEN_HEIGHT / 2);
+//         int16_t y2_pos = 20;
+
+//         display.clearDisplay();
+//         display.setTextColor(WHITE);
+
+//         // Menampilkan baris pertama
+//         display.setCursor(x1_pos, y1_pos);
+//         display.print(line1);
+
+//         // Menampilkan baris kedua
+//         display.setCursor(x2_pos, y2_pos);
+//         display.print(line2);
+
+//         display.display();
+//       }
+
+//       lastTimeTermo = millis();
+//     }
+//   }
+
+//   displayBluetoothStatus();
+
+//   // ketika device tidak terkoneksi
+//   if (deviceConnected)
+//   {
+//     digitalWrite(LED_BUILTIN, HIGH);
+//   }
+//   else
+//   {
+//     // delay(1000);
+//     // // restar adversting
+//     // pServer->startAdvertising();
+//     digitalWrite(LED_BUILTIN, LOW);
+//     // Serial.println("Bluetooth tidak tersambung...");
+//   }
+// }
